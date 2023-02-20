@@ -4,16 +4,23 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.BigIntegerNode;
 import com.fasterxml.jackson.databind.node.BooleanNode;
+import com.fasterxml.jackson.databind.node.DecimalNode;
+import com.fasterxml.jackson.databind.node.DoubleNode;
+import com.fasterxml.jackson.databind.node.FloatNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.LongNode;
+import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ShortNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.translate.UnicodeUnescaper;
 
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -39,24 +46,37 @@ public class JsonParser {
             return '"' + new UnicodeUnescaper().translate(StringEscapeUtils.escapeJava(n.textValue())) + '"';
         else if (field instanceof IntNode n)
             return Integer.toString(n.intValue());
-        if (field instanceof LongNode n)
+        else if (field instanceof ShortNode n)
+            return Short.toString(n.shortValue());
+        else if (field instanceof DoubleNode n)
+            return Double.toString(n.doubleValue());
+        else if (field instanceof DecimalNode n)
+            return "new BigDecimal(\"" + n.decimalValue().toString() + "\")";
+        else if (field instanceof BigIntegerNode n)
+            return "new BigInteger(\"" + n.bigIntegerValue().toString() + "\")";
+        else if (field instanceof LongNode n)
             return n.longValue() + "L";
-        if (field instanceof BooleanNode n)
+        else if (field instanceof FloatNode n)
+            return n.floatValue() + "f";
+        else if (field instanceof BooleanNode n)
             return n.toPrettyString();
-        if (field instanceof ArrayNode n)
+        else if (field instanceof ArrayNode n)
             return list(indentLevel, name, n);
-        if (field instanceof ObjectNode n)
+        else if (field instanceof ObjectNode n)
             return object(indentLevel, name, n);
+        else if (field instanceof NullNode n)
+            return "null";
         else
             return "/* %s not supported */".formatted(field.getClass().getSimpleName());
     }
 
     private static String object(int indentLevel, String name, ObjectNode n) {
-        return classifier(name) + ".builder()\n" + indent(indentLevel + 1)
-                + StreamSupport.stream(Spliterators.spliteratorUnknownSize(n.fields(), Spliterator.ORDERED), false)
-                .map(e -> "." + e.getKey() + "(" + value(indentLevel + 1, e.getValue(), e.getKey()) + ")")
-                .collect(Collectors.joining("\n" + indent(indentLevel + 1)))
-                + "\n" + indent(indentLevel + 1) + ".build()";
+        return classifier(name) + ".builder()\n" + indent(indentLevel + 1) +
+                StreamSupport.stream(Spliterators.spliteratorUnknownSize(n.fields(), Spliterator.ORDERED), false)
+                        .filter(e -> !(e.getValue() instanceof NullNode))
+                        .map(e -> "." + e.getKey() + "(" + value(indentLevel + 1, e.getValue(), e.getKey()) + ")")
+                        .collect(Collectors.joining("\n" + indent(indentLevel + 1))) + "\n" +
+                indent(indentLevel + 1) + ".build()";
     }
 
     private static String list(int indentLevel, String name, ArrayNode n) {
@@ -64,6 +84,7 @@ public class JsonParser {
             return "Collections.EMPTY_LIST";
         else
             return "List.of(" + StreamSupport.stream(n.spliterator(), false)
+                    .filter(Predicate.not(NullNode.class::isInstance))
                     .map(child -> value(indentLevel + 1, child, singular(name)))
                     .collect(Collectors.joining(",", "\n" + indent(indentLevel + 1), "")) + ")";
     }
